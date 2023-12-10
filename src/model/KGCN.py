@@ -9,19 +9,19 @@ class KGCN(nn.Module):
         self.num_user = num_user
         self.num_ent = num_ent
         self.num_rel = num_rel
-        self.n_iter = args.n_iter
-        self.batch_size = args.batch_size
-        self.dim = args.dim
-        self.n_neighbor = args.neighbor_sample_size
+        self.n_iter = args["n_iter"]
+        self.batch_size = args["batch_size"]
+        self.dim = args["dim"]
+        self.n_neighbor = args["neighbor_sample_size"]
         self.kg = kg
         self.device = device
-        self.aggregator = Aggregator(self.batch_size, self.dim, args.aggregator)
+        self.aggregator = Aggregator(self.batch_size, self.dim, args["aggregator"])
         
         self._gen_adj()
             
-        self.usr = torch.nn.Embedding(num_user, args.dim)
-        self.ent = torch.nn.Embedding(num_ent, args.dim)
-        self.rel = torch.nn.Embedding(num_rel, args.dim)
+        self.usr = torch.nn.Embedding(num_user, args["dim"])
+        self.ent = torch.nn.Embedding(num_ent, args["dim"])
+        self.rel = torch.nn.Embedding(num_rel, args["dim"])
         
     def _gen_adj(self):
         '''
@@ -41,49 +41,29 @@ class KGCN(nn.Module):
             self.adj_rel[e] = torch.LongTensor([rel for rel, _ in neighbors])
         
     def forward(self, u, v):
-        '''
-        input: u, v are batch sized indices for users and items
-        u: [batch_size]
-        v: [batch_size]
-        '''
         batch_size = u.size(0)
         if batch_size != self.batch_size:
             self.batch_size = batch_size
-        # change to [batch_size, 1]
         u = u.view((-1, 1))
         v = v.view((-1, 1))
         
-        # [batch_size, dim]
         user_embeddings = self.usr(u).squeeze(dim = 1)
-        
         entities, relations = self._get_neighbors(v)
-        
         item_embeddings = self._aggregate(user_embeddings, entities, relations)
-        
         scores = (user_embeddings * item_embeddings).sum(dim = 1)
-            
         return torch.sigmoid(scores)
     
     def _get_neighbors(self, v):
-        '''
-        v is batch sized indices for items
-        v: [batch_size, 1]
-        '''
         entities = [v]
         relations = []
-        
         for h in range(self.n_iter):
             neighbor_entities = torch.LongTensor(self.adj_ent[entities[h]]).view((self.batch_size, -1)).to(self.device)
             neighbor_relations = torch.LongTensor(self.adj_rel[entities[h]]).view((self.batch_size, -1)).to(self.device)
             entities.append(neighbor_entities)
             relations.append(neighbor_relations)
-            
         return entities, relations
     
     def _aggregate(self, user_embeddings, entities, relations):
-        '''
-        Make item embeddings by aggregating neighbor vectors
-        '''
         entity_vectors = [self.ent(entity) for entity in entities]
         relation_vectors = [self.rel(relation) for relation in relations]
         
@@ -92,7 +72,6 @@ class KGCN(nn.Module):
                 act = torch.tanh
             else:
                 act = torch.sigmoid
-            
             entity_vectors_next_iter = []
             for hop in range(self.n_iter - i):
                 vector = self.aggregator(
@@ -103,5 +82,4 @@ class KGCN(nn.Module):
                     act=act)
                 entity_vectors_next_iter.append(vector)
             entity_vectors = entity_vectors_next_iter
-        
         return entity_vectors[0].view((self.batch_size, self.dim))
