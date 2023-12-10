@@ -6,4 +6,4 @@ torchvision
 torchaudio
 matplotlib
 jupyter
-SPARQLWrapper
+# SPARQLWrapper
